@@ -7,11 +7,9 @@ import skimage.segmentation
 cam = VideoCapture(1)  # 0 -> index of camera
 s, img = cam.read()
 if s:  # frame captured without any errors
-    # namedWindow("cam-test", WINDOW_AUTOSIZE)
-    # imshow("cam-test", img)
-    # waitKey(0)
-    # destroyWindow("cam-test")
     imwrite("filename.jpg", img)  # save image
+
+
 
 im = skimage.io.imread('filename.jpg', True)
 
