@@ -20,34 +20,35 @@ end
 load('Camera Calibration\Calibration webcam\cameraParams.mat');
 img = undistortImage(img,cameraParams);
 
-% Create a mask for the markers
-maskedImg = createMask(img);
+% Create a B&W mask for the markers
+imgMasked = createMask(img);
 
-% Find circles in the masked image, store their centroid-coordinates and radii
-[centroidCoordinatesArray, radiiCircles] = imfindcircles(maskedImg,[8, 20]);
+% Find markers in the masked image, store their center-coordinates and radii
+[markerCenterCoords, markerRadii] = imfindcircles(imgMasked,[8, 20]);
 
-%  Show the found circles in the image
+%  Show the found markers in the image
 imshow(img);
-viscircles(centroidCoordinatesArray,radiiCircles);
+viscircles(markerCenterCoords,markerRadii);
 hold on;
 
-% Determine the number of centroids, lines, and curves
-centroidCount = length(centroidCoordinatesArray);
-lineCount = centroidCount-1;
+% Determine the number of markers, lines, and curves
+markerCount = length(markerCenterCoords);
+lineCount = markerCount-1;
 curveCount = lineCount-1; 
 
-% Sort the found centroids from left to right
-centroidCoordinatesArray = sortrows(centroidCoordinatesArray);
+% Sort the found centers from left to right
+markerCenterCoords = sortrows(markerCenterCoords);
 % TODO sort based on nearest point
 
-% Create lines between centroids, calculate the length of the lines, and plot the lines
-lineArray = zeros(lineCount,4);
-lineLengthArray = zeros(1,lineCount);
+% Create lines between centers, calculate the length of the lines, and plot the lines
+lineCoords = zeros(lineCount,4);
+lineLengths = zeros(lineCount,1);
 for n = 1:lineCount
     
-    lineArray(n,:) = [centroidCoordinatesArray(n,1), centroidCoordinatesArray(n,2), centroidCoordinatesArray(n+1,1), centroidCoordinatesArray(n+1,2)];
-    lineLengthArray(1,n) = pdist(centroidCoordinatesArray(n:n+1,:),'euclidean');
-    plot([lineArray(n,1), lineArray(n,3)], [lineArray(n,2), lineArray(n,4)]);
+    % lineCoords: [x1,y1,x2,y2]
+    lineCoords(n,:) = [markerCenterCoords(n,1), markerCenterCoords(n,2), markerCenterCoords(n+1,1), markerCenterCoords(n+1,2)];
+    lineLengths(n,1) = pdist(markerCenterCoords(n:n+1,:),'euclidean');
+    plot([lineCoords(n,1), lineCoords(n,3)], [lineCoords(n,2), lineCoords(n,4)]);
 
 end
 
@@ -55,40 +56,40 @@ end
 % % TODO switch of temporary solution"of taking longest line
 % % TODO find solution for when lines are longer than the reference line
 % % This problem is a result of the camera perspective
-% referenceLength = distancesCentroids(1,1);
-referenceLineLength = max(lineLengthArray);
-realLineLengthmm = 10; % Real length between centroids in mm
-pixelsPermm = referenceLineLength/realLineLengthmm;
+% referenceLength = distancescenters(1,1);
+refLineLength = max(lineLengths);
+realLineLengthmm = 10; % Real length between centers in mm
+pixelsPermm = refLineLength/realLineLengthmm;
 
-% Calculate the angle (theta) between the centroids for each curve
+% Calculate the angle (theta) between the centers for each curve
 % Ignore the first line, which is used for reference 
-curveThetaArray = zeros(1,curveCount);
-syms x;
+curveThetas = zeros(curveCount,1);
 for n = 1:curveCount
     
     % Take length of the current line, compare to reference line length, 
     % and calculate the resulting angle (theta) for the curve
-    eq1 = lineLengthArray(n+1)*x == 2*referenceLineLength*sin(x/2);
+    syms x;
+    eq1 = lineLengths(n+1)*x == 2*refLineLength*sin(x/2);
     theta = vpasolve(eq1,x,pi/2);
    
     % If theta is too small, set to a fixed value
     if  theta > 1.0e-6 
-        curveThetaArray(n) = theta;
+        curveThetas(n) = theta;
     else
-        curveThetaArray(n) = 1.0e-6;
+        curveThetas(n) = 1.0e-6;
     end
     
-    % Check if the second centroid of the current line is above the previous line
+    % Check if the second center-coord of the current line is above the previous line
     % if above the prvious line, the curvature is reversed
-    lineSlope = (lineArray(n,4)- lineArray(n,2))./(lineArray(n,3)-lineArray(n,1)); 
-    if lineArray(n+1,4) < (lineSlope*(lineArray(n+1,3)-lineArray(n,1))+lineArray(n,2))
-        curveThetaArray(n) = curveThetaArray(n)*-1;
+    lineSlope = (lineCoords(n,4)-lineCoords(n,2))./(lineCoords(n,3)-lineCoords(n,1)); 
+    if lineCoords(n+1,4) < (lineSlope*(lineCoords(n+1,3)-lineCoords(n,1))+lineCoords(n,2))
+        curveThetas(n) = curveThetas(n)*-1;
     end
     
 end
 
-curveRadiiArray = referenceLineLength./curveThetaArray;
-curveCurvatureArray = 1./curveRadiiArray;
+curveRadii = refLineLength./curveThetas;
+curveCurvature = 1./curveRadii;
 
 %% CONSTRUCT BELLOW SHAPE FIGURE
 
@@ -97,36 +98,36 @@ curveCurvatureArray = 1./curveRadiiArray;
 
 % Curvature_array = zeros(1,linesCount);
 % Curvature_array=Sensormodel Function With Sensordata as input
-% radiiCentroids=1./Curvature_array; %radius from curvature
+% radiicenters=1./Curvature_array; %radius from curvature
 
-hingeAngleArray = zeros(1,centroidCount); % Starting angles of the hinges, first hingle-angle equals zero
-hingeCoordinatesArray = zeros(centroidCount,2); % XY coordinates of hinges, first hinge-position set to [0,0]
-hingeCircleCenterCoordinatesArray = zeros(lineCount,2); % XY-coordinates of centers of circle segments between hinges
+arcStartAngles = zeros(lineCount,1); % Starting angles of the hinges, first hingle-angle equals zero
+arcHingeCoords = zeros(lineCount,2); % XY coordinates of hinges, first hinge-position set to [0,0]
+arcCenterCoords = zeros(curveCount,2); % XY-coordinates of centers of arc segments between hinges
 
-% Level the radii centroids
-curveRadiiLeveledArray = 1-(abs((curveRadiiArray))).^-2; 
+% Level the radii centers
+curveRadiiLeveled = 1-(abs((curveRadii))).^-2; 
 
 % Create a new window for the bellow figure, calculate and display the bellow curves
 figure;
 for n = 1:curveCount 
     
-    hingeCircleCenterCoordinatesArray(n,:) = [(hingeCoordinatesArray(n,1)-sind(hingeAngleArray(n))*curveRadiiArray(n)), (hingeCoordinatesArray(n,2)-cosd(hingeAngleArray(n))*curveRadiiArray(n))];
-    hingeAngleArray(n+1) = hingeAngleArray(n)+(360*referenceLineLength)/(2*pi*curveRadiiArray(n));
-    hingeCoordinatesArray(n+1,:) = [hingeCircleCenterCoordinatesArray(n,1)+sind(hingeAngleArray(n+1))*curveRadiiArray(n), hingeCircleCenterCoordinatesArray(n,2)+cosd(hingeAngleArray(n+1))*curveRadiiArray(n)];
+    arcCenterCoords(n,:) = [(arcHingeCoords(n,1)-sind(arcStartAngles(n))*curveRadii(n)), (arcHingeCoords(n,2)-cosd(arcStartAngles(n))*curveRadii(n))];
+    arcStartAngles(n+1) = arcStartAngles(n)+(360*refLineLength)/(2*pi*curveRadii(n));
+    arcHingeCoords(n+1,:) = [arcCenterCoords(n,1)+sind(arcStartAngles(n+1))*curveRadii(n), arcCenterCoords(n,2)+cosd(arcStartAngles(n+1))*curveRadii(n)];
     
-    hingeAngleDifference = linspace(90-hingeAngleArray(n+1),90-hingeAngleArray(n));
-    x = curveRadiiArray(n)*cosd(hingeAngleDifference)+hingeCircleCenterCoordinatesArray(n,1);
-    y = curveRadiiArray(n)*sind(hingeAngleDifference)+hingeCircleCenterCoordinatesArray(n,2);
+    arcAngleDifference = linspace(90-arcStartAngles(n+1),90-arcStartAngles(n));
+    x = curveRadii(n)*cosd(arcAngleDifference)+arcCenterCoords(n,1);
+    y = curveRadii(n)*sind(arcAngleDifference)+arcCenterCoords(n,2);
 
-    plot(x, y,'LineWidth',4,'color',[0, 1, (curveRadiiLeveledArray(n)-min(curveRadiiLeveledArray))/(max(curveRadiiLeveledArray)-min(curveRadiiLeveledArray))])
+    plot(x, y,'LineWidth',4,'color',[0, 1, (curveRadiiLeveled(n)-min(curveRadiiLeveled))/(max(curveRadiiLeveled)-min(curveRadiiLeveled))])
     axis equal;
     hold on;
     
 end
 
 % TODO overlay Bellow on original image
-% TODO first hinge position equals first centroid of first curve in image
-% TODO match hinge positions with centroid positions 
+% TODO first hinge position equals first center of first curve in image
+% TODO match hinge positions with center positions 
 
 clear cam;
 
