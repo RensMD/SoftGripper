@@ -1,9 +1,7 @@
 clear;
 
-% TODO store data in results matrix
-
 %% Settings
-nSamples = 3;
+nSamples = 4;
 
 angleStarting = 0;
 angleMax = 130;
@@ -11,73 +9,90 @@ angleMax = 130;
 presMin = 55;
 presMax = 90;
 
-angle=zeros(nSamples,1);
-pressure=zeros(nSamples,1);
-
 %% Setup
 
-% Setup arduino communication
+% % Setup arduino communication
 instrfind('Port','COM5') % Check if arduinoActuator is in use
-instrfind('Port','COM6') % Check if arduinoActuator is in use
+instrfind('Port','COM8') % Check if arduinoActuator is in use
 
 arduinoActuator = serial('COM5','BaudRate',9600);
-arduinoSensor = serial('COM6','BaudRate',9600);
-% arduinoActuator.Terminator = 'CR/LF';
+arduinoSensor = serial('COM8','BaudRate',9600);
 arduinoSensor.Terminator = 'CR/LF';
 fopen(arduinoActuator);
 fopen(arduinoSensor);
-fprintf(arduinoActuator, '%c', 'a');
 
-% Setup webcam
+command = 'a';
+
+% Setup Webcam
 webcamlist;
 cam = webcam('C922 Pro Stream Webcam');
 load('Camera Calibration\Calibration webcam\cameraParams.mat');
 
+% Setup Folders
+c = clock;
+folderDate = join(num2str(c(1:5),'%02d'));
+topFolderImages = 'Images/';
+topFolderData = 'Datasets/';
+slash = '/';
+extPNG = '.png';
+extMAT = '.mat';
+
+pathFolderImages = [topFolderImages, folderDate];
+pathFolderImages = join(pathFolderImages);
+mkdir (pathFolderImages);
+
+% Setup Data Matrix
+dataMatrix = zeros(nSamples, 23);
+
 %% Loop
-for i=1:nSamples
+for curSample=1:(nSamples)
+    
+    % Create random values for angle and pressure
+    randAngle = round(0 + angleMax*rand);
+    randPress = round(presMin + presMax*rand);
     
     % Move actuator
-    randVal1 = num2str(round(0 + angleMax*rand));
-    randVal2 = num2str(round(presMin + presMax*rand));
-    fprintf(arduinoActuator,'R%s', randVal1); %send command to change angle obstacle to arduino
+    fprintf(arduinoActuator,'R%s', num2str(randAngle)); %send command to change angle obstacle to arduino
     pause(1);
-    fprintf(arduinoActuator,'T%s', randVal2); %send command to change pressure
-    pause(2);
-    
+    fprintf(arduinoActuator,'T%s', num2str(randPress)); %send command to change pressure
+
+    % Prepare image path
+    number = num2str(curSample,'%04d');
+    pathImage = [pathFolderImages, slash, number, extPNG];
+    pathImage = join(pathImage);
+ 
+    % Wait for comfirmation from arduino
     while arduinoActuator.BytesAvailable  == 0
         pause(1)
     end
-    fgetl(arduinoActuator)
     
-%     image = snapshot(cam); %take picture
-%     thisFile=sprintf(nametemplate,i); %create filename
-%     fullName=fullfile(savepath,thisFile); %folder included
-%     imwrite(image,fullName); %write picture to file
-%     pause(2)
+    % Get Data from cam and sensors
+    img = snapshot(cam);
+    fprintf(arduinoSensor,command);
+    pause(1);
+    sensorData0 = str2double(strsplit(fgetl(arduinoSensor),','));
+    sensorData1 = str2double(strsplit(fgetl(arduinoSensor),','));
+    sensorData2 = str2double(strsplit(fgetl(arduinoSensor),','));
+    sensorData3 = str2double(strsplit(fgetl(arduinoSensor),','));
+    sensorData4 = str2double(strsplit(fgetl(arduinoSensor),','));
     
-%     % Get sensor data
-%     command = 'a';
-%     fprintf(arduinoSensor,command); % Send command
-%     pause(2);
-%     sensorData0 = fgetl(arduinoSensor)
-%     sensorData1 = fgetl(arduinoSensor)
-%     sensorData2 = fgetl(arduinoSensor)
-%     sensorData3 = fgetl(arduinoSensor)
-%     sensorData4 = fgetl(arduinoSensor)
-%     
-%     % Image processing
-%     img = snapshot(cam);
-%     imshow(img);
-%     imwrite(img,'Demo Images/marker_demo.png'); % TODO update
+    % Save Data
+    imwrite(img, pathImage);
+    dataMatrix(curSample,1:23) = [curSample, randAngle, randPress, sensorData0(2:5), sensorData1(2:5), sensorData2(2:5), sensorData3(2:5), sensorData4(2:5)];
     
-    fprintf(arduinoActuator,'S'); %angle back to original
+    fprintf(arduinoActuator,'S'); % angle back to original
     pause (1);
     fprintf(arduinoActuator,'U'); % angle back to starting position
-    pause(2);
+    pause(1);
+     
 end
 
-% fprintf(' DONE ');
-% hold off;
+% Save data matrix
+matriceName = join([topFolderData, folderDate, extMAT]);
+save(matriceName, 'dataMatrix');
+
 fclose(arduinoActuator);
 fclose(arduinoSensor);
 clear cam;
+
+fprintf(' DONE ');
