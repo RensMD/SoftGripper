@@ -8,34 +8,34 @@
 #include <AccelStepper.h>
 
 /* PINS */
-const int solPinVac   = 4;
-const int pumpPin     = 6;
-const int pumpPinVac  = 10;
+const int pinVacSolenoid  = 4;
+const int pinPresPump     = 6;
+const int pinVacPump      = 10;
 
-const int endswitch1Pin = 12; // Switch at the high pressure end (srynge empty)
-const int endswitch2Pin = 13; // Switch at the low pressure end (srynge full)
-const int pSensor = A0; //pressure sensor
+const int pinEndSwitchHigh  = 12; // Switch at the high pressure end (srynge empty)
+const int pinEndSwitchLow   = 13; // Switch at the low pressure end (srynge full)
+const int pinPresSensor     = A0; // Pressure sensor
 
-#define GRIP_DIR   8
-#define GRIP_STEP  9
-#define GRIP_MS1   10
-#define GRIP_MS2   11
-#define GRIP_MS3   7
+#define OBST_DIR   8
+#define OBST_STEP  9
+#define OBST_MS1   10
+#define OBST_MS2   11
+#define OBST_MS3   7
 
 #define PUMP_STEP  3
 #define PUMP_DIR   2
 
 /* STEPPER MOTORS */
-#define GRIP_MOTOR_STEPS 200 // Using a 200-step motor (most common)
+#define OBST_MOTOR_STEPS 200 // Using a 200-step motor (most common)
 
-A4988 stepperGripper(GRIP_MOTOR_STEPS, GRIP_DIR, GRIP_STEP, GRIP_MS1, GRIP_MS2, GRIP_MS3);
-AccelStepper stepperPump(AccelStepper::DRIVER, PUMP_STEP, PUMP_DIR);
+A4988 obstacleStepper(OBST_MOTOR_STEPS, OBST_DIR, OBST_STEP, OBST_MS1, OBST_MS2, OBST_MS3);
+AccelStepper pumpStepper(AccelStepper::DRIVER, PUMP_STEP, PUMP_DIR);
 
-double Ang = 0.0; // Starting angle
-double minPres = 49.0;
-double desPressure = 0.0;  // Desired pressure = SetpointPID
-double measPressure = 0.0;
-double range = 3.0;
+double obstacleAngle = 0.0;
+double pressureMin = 49.0;
+double pressureDesired = 0.0;  // Desired pressure = SetpointPID
+double pressureMeasured = 0.0;
+double pressureRange = 4.0;
 
 /* PID CONTROL */
 // Tuning parameters
@@ -44,20 +44,20 @@ double Ki = 10;
 double Kd = 6;
 
 double outputPID;
-PID myPID(&measPressure, &outputPID, &desPressure, Kp, Ki, Kd, DIRECT);
+PID myPID(&pressureMeasured, &outputPID, &pressureDesired, Kp, Ki, Kd, DIRECT);
 
 /* PUMPS */
-int timePumpOn = 6000; //how long the pump is turned on in milisec
-int timePumpOn2 = 2000; //how long the pump is turned on in milisec
+int durationPres = 4000; // How long the pressure pump is turned on in milisec
+int durationVac = 2000; // How long the vacuum pump is turned on in milisec
 
-long timePutOn = 0; // The moment the pump has been turned on (does not have to be set)
-long timePutOn2 = 0; // The moment the vacuum pump has been turned on (does not have to be set)
-boolean pumpOn = false; // If the pump is turned on
-boolean pumpOn2 = false; // If the vacuum pump is turned on
+long timePresOn = 0; // The moment the pump has been turned on (does not have to be set)
+long timeVacOn = 0; // The moment the vacuum pump has been turned on (does not have to be set)
+boolean presOn = false; // If the pump is turned on
+boolean VacOn = false; // If the vacuum pump is turned on
 
 //for debug print
 #ifdef DEBUG_MODE
-  double lastPrintTime = 0;
+  double timePrintPrevious = 0;
 #endif
 
 ////////////
@@ -65,14 +65,14 @@ boolean pumpOn2 = false; // If the vacuum pump is turned on
 ////////////
 void setup() {
   /* SETUP PINS */
-  pinMode(pSensor, INPUT);
-  pinMode(endswitch1Pin, INPUT);
-  pinMode(endswitch2Pin, INPUT);
-  pinMode(pumpPin, OUTPUT);
-  pinMode(pumpPinVac, OUTPUT);
-  pinMode(solPinVac, OUTPUT);
+  pinMode(pinPresSensor, INPUT);
+  pinMode(pinEndSwitchHigh, INPUT);
+  pinMode(pinEndSwitchLow, INPUT);
+  pinMode(pinPresPump, OUTPUT);
+  pinMode(pinVacPump, OUTPUT);
+  pinMode(pinVacSolenoid, OUTPUT);
 
-  digitalWrite(solPinVac, LOW);
+  digitalWrite(pinVacSolenoid, LOW);
 
   /* SETUP COMMUNICATION */
   Serial.begin(9600);
@@ -80,22 +80,21 @@ void setup() {
   /* SETUP PID */
   myPID.SetMode(AUTOMATIC);
   myPID.SetOutputLimits(-100000, 100000);
-  desPressure = minPres;
+  pressureDesired = pressureMin;
 
   /* SETUP STEPPERS */
-  stepperPump.setAcceleration(20000000);
-  stepperGripper.begin(50, 10);
-  
-  stepperGripper.rotate(30);
-  stepperGripper.rotate(-30);
+  pumpStepper.setAcceleration(20000000);
+  obstacleStepper.begin(15, 1);
+  obstacleStepper.rotate(30);
+  obstacleStepper.rotate(-30);
 }
 
 ///////////////
 // Main Loop //
 ///////////////
 void loop() {
-  while (Serial.available() == 0){
-    measPressure = analogRead(pSensor);
+  if(!Serial.available()){
+    pressureMeasured = analogRead(pinPresSensor);
 
     // PID
     myPID.Compute();
@@ -104,15 +103,13 @@ void loop() {
     controlPump();
 
     #ifdef DEBUG_MODE
-      if (millis() - lastPrintTime > 200) {
+      if (millis() - timePrintPrevious > 200) {
         printDebug();
-        lastPrintTime = millis();
+        timePrintPrevious = millis();
       }
     #endif
   }
-  if (Serial.available() > 0){
-    checkSerial();
-  }
+  else  checkSerial();
 }
 
 ///////////////
@@ -120,76 +117,74 @@ void loop() {
 ///////////////
 /* Control the pumps */
 void controlPump(){
-  // Turn pump on and off
   // TURN PUMP ON IF SWITCH AT HIGH PRESSURE END IS TOUCHED
-  if (digitalRead(endswitch1Pin) == LOW) {
-    analogWrite(pumpPin, 50);
-    timePutOn =  millis();
-    pumpOn = true;
+  if (digitalRead(pinEndSwitchHigh) == LOW) {
+    analogWrite(pinPresPump, 100);
+    timePresOn =  millis();
+    presOn = true;
   }
   // TURN PUMP OFF AFTER THE TIMEPOMPON HAS PASSED
-  if ((millis() - timePutOn > timePumpOn || digitalRead(endswitch2Pin) == LOW) && pumpOn) {
-    digitalWrite(pumpPin, LOW);
-    timePutOn = 0;
-    pumpOn = false;
+  if ((millis() - timePresOn > durationPres || digitalRead(pinEndSwitchLow) == LOW) && presOn) {
+    digitalWrite(pinPresPump, LOW);
+    presOn = false;
   }
 
   //TURN VACUUM PUMP ON IF SWITCH AT LOW PRESSURE END IS TOUCHED (AND OPEN SOLENOID)
-  if (digitalRead(endswitch2Pin) == LOW) {
-    analogWrite(pumpPinVac, 100);
-    digitalWrite(solPinVac, HIGH);
-    timePutOn2 =  millis();
-    pumpOn2 = true;
+  if (digitalRead(pinEndSwitchLow) == LOW) {
+    analogWrite(pinVacPump, 100);
+    digitalWrite(pinVacSolenoid, HIGH);
+    timeVacOn =  millis();
+    VacOn = true;
   }
   //TURN VACUUM PUMP OFF AFTER THE TIMEPOMPON HAS PASSED
-  if ((millis() - timePutOn2 > timePumpOn2 || digitalRead(endswitch1Pin) == LOW) && pumpOn2) {
-    digitalWrite(solPinVac, LOW);
-    digitalWrite(pumpPinVac, LOW);
-    timePutOn2 = 0;
-    pumpOn2 = false;
+  if ((millis() - timeVacOn > durationVac || digitalRead(pinEndSwitchHigh) == LOW) && VacOn) {
+    digitalWrite(pinVacSolenoid, LOW);
+    digitalWrite(pinVacPump, LOW);
+    VacOn = false;
   }
 }
 
 /* INITIALIZE PUMP AFTER COMMAND */
 void initializePump(){
+  if(presOn)
+  if(VacOn)
   
-  analogWrite(pumpPin, 200);
-  while (digitalRead(endswitch2Pin) == HIGH){    
-    measPressure = analogRead(pSensor);
+  analogWrite(pinPresPump, 150);
+  while (digitalRead(pinEndSwitchLow) == HIGH){    
+    pressureMeasured = analogRead(pinPresSensor);
     myPID.Compute();
     moveStepper(outputPID);
   }
-  digitalWrite(pumpPin, LOW);
+  digitalWrite(pinPresPump, LOW);
 
-  analogWrite(pumpPinVac, 100);
-  digitalWrite(solPinVac, HIGH);
+  analogWrite(pinVacPump, 100);
+  digitalWrite(pinVacSolenoid, HIGH);
   unsigned long timeBefore = millis();
-  while (millis() - timeBefore < 4000){    
-    measPressure = analogRead(pSensor);
+  while (millis() - timeBefore < 5000){    
+    pressureMeasured = analogRead(pinPresSensor);
     myPID.Compute();
     moveStepper(outputPID);
   }
-  digitalWrite(solPinVac, LOW);
-  digitalWrite(pumpPinVac, LOW);
+  digitalWrite(pinVacSolenoid, LOW);
+  digitalWrite(pinVacPump, LOW);
   
-  unsigned long rangeTimer = millis();
+  unsigned long pressureRangeTimer = millis();
   bool inRange = false;
   while(!inRange){
-    measPressure = analogRead(pSensor);
+    pressureMeasured = analogRead(pinPresSensor);
       
-    if(measPressure <= (desPressure + range) && measPressure >= (desPressure - range)){
-      if(millis() - rangeTimer > 1000) inRange = true;
+    if(pressureMeasured <= (pressureDesired + pressureRange) && pressureMeasured >= (pressureDesired - pressureRange)){
+      if(millis() - pressureRangeTimer > 1000) inRange = true;
     }
     else{
-      rangeTimer = millis();
+      pressureRangeTimer = millis();
     }
 
     myPID.Compute();
     moveStepper(outputPID);
   }
   
-  Serial.println("I");
-   
+  Serial.println("I");  
 }
 
 /* Move the pump stepper */
@@ -203,9 +198,9 @@ void moveStepper(double stepperMove) {
     moveDir = 20000;
   }
   
-  stepperPump.move(moveDir);
-  stepperPump.setMaxSpeed(abs(stepperMove));
-  stepperPump.runSpeed();
+  pumpStepper.move(moveDir);
+  pumpStepper.setMaxSpeed(abs(stepperMove));
+  pumpStepper.runSpeed();
 }
 
 /* Serial */
@@ -213,24 +208,29 @@ void moveStepper(double stepperMove) {
 void checkSerial(){
   int command = Serial.read();
   
-  if (command == 'R') {
-    Ang = readValue();
-    stepperGripper.rotate(Ang);
+  if (command == 'A') {
+    // Set Angle
+    obstacleAngle = readValue();
+    obstacleStepper.rotate(obstacleAngle);
     #ifdef DEBUG_MODE
       Serial.print("Angle: ");
-      Serial.println(Ang);
+      Serial.println(obstacleAngle);
     #endif
   }
-  else if (command == 'T') {
-    desPressure = readValue();
+  else if (command == 'P') {
+    // Set Pressure
+    pressureDesired = readValue();
     initializePump();
     #ifdef DEBUG_MODE
       Serial.print("Pressure: ");
-      Serial.println(desPressure);
+      Serial.println(pressureDesired);
     #endif
   }
-  else if (command == 'S') stepperGripper.rotate(-Ang);
-  else if (command == 'U') desPressure = minPres;
+  else if (command == 'R'){
+    // Reset positions 
+    obstacleStepper.rotate(-obstacleAngle);
+    pressureDesired = pressureMin;
+  }
 }
 
 // Read value of incoming number
@@ -248,12 +248,12 @@ int readValue() {
 // Send Serial Values
 #ifdef DEBUG_MODE
   void printDebug() {
-    Serial.print(measPressure);
+    Serial.print(pressureMeasured);
     Serial.print(",  ");
-    Serial.print(desPressure);
+    Serial.print(pressureDesired);
     Serial.print(",  ");
-    Serial.print(digitalRead(endswitch1Pin));
+    Serial.print(digitalRead(pinEndSwitchHigh));
     Serial.print(",  ");
-    Serial.println(digitalRead(endswitch2Pin));
+    Serial.println(digitalRead(pinEndSwitchLow));
   }
 #endif

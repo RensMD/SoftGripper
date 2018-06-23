@@ -1,10 +1,13 @@
 #include <Wire.h>
 #include "TCS34725_quickswitch.h"
 
+// Uncomment to enable
+//#define TIME_MODE
+
 #define TCAADDR 0x70
 
-const int SDApin = 13;
-const int SCLpin = 12;
+const int SDApin = SDA;
+const int SCLpin = SCL;
 
 const int integrationTime = 700;
 const byte tcsUsed = 5;
@@ -35,8 +38,6 @@ void tcaselect(uint8_t i){
 }
 
 void printValues(byte n){
-   Serial.print(n);
-   Serial.print(",");
    Serial.print(redArray[n]);
    Serial.print(",");
    Serial.print(greenArray[n]);
@@ -60,27 +61,29 @@ void setup() {
 void loop(){
   
   delay(integrationTime);
-//  delay(500);
+  
   while (Serial.available()) {
     Serial.read();
   }
-  
   while (Serial.available() <= 0) {
     delay(10);
   }
 
-//  Serial.print("Data Time:");
-//  unsigned long timeBefore = millis();
+  #ifdef TIME_MODE
+    Serial.print("Data Time:");
+    unsigned long timeBefore = millis();
+  #endif
   
   for(byte n = 0; n < tcsUsed; n++){
      tcaselect(n);
      tcsArray[n].getRawData(&redArray[n], &greenArray[n], &blueArray[n], &clearArray[n]);
   }
-  
-//  Serial.println(millis() - timeBefore);
+
+  #ifdef TIME_MODE
+    Serial.println(millis() - timeBefore);
+  #endif
   
   for(byte n = 0; n < tcsUsed; n++){
     printValues(n);
   }
 }
-

@@ -1,6 +1,16 @@
 desktop.ini
-.asv
+
+*.asv
+
 Datasets/
+
+Datasets Images/
+
 Images/
+
 Camera Calibration/
+
 Old/
+ExcelWriter.m
+Readme_instructions.docx
+~$*.*

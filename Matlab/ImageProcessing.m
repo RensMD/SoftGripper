@@ -1,52 +1,97 @@
 clear;
+warning off;
 
 %% Settings
-nSamples = 4;
-
 showImg = false;
 showTspResults = false;
 
-%% Loop
+% Image files
+imageFolder = ('Images\');
+currentFolder = ('2018  06  21  12  06\');
+folder = [imageFolder, currentFolder];
+folder = join(folder);
 
-for i=1:nSamples
-    % Load image
-    imwrite(img,'Demo Images/marker_demo.png'); % TODO update
+% Camera Calibration data
+load('Camera Calibration\Logitec C922\cameraParams.mat');
+
+%% Get images
+% Get image file names
+filePattern = sprintf('%s/*.png', folder);
+baseFileNames = dir(filePattern);
+
+% Count number of images and create data matrix
+numberOfImageFiles = length(baseFileNames);
+dataMatrix = zeros(3, 13);
+
+% Create a check if all images meet conditions
+allCorrect = true;
+
+%% Loop
+for i=1:numberOfImageFiles
+    imgPath = fullfile(folder, baseFileNames(i).name);
     
+    % Load image and crop
+    img = imread(imgPath);
+    img = imcrop(img,[120 65 420 230]);
+      
     % Load webcam calibration parameters and use them to undistort the image
     img = undistortImage(img,cameraParams);
-    imshow(img);
 
     % Create a B&W mask for the markers
     imgMasked = createMask(img);
-    imshow(imgMasked);
-    
+   
     % Retrieve marker coordinates
     markerCenterCoords = identifyMarkers(imgMasked, showImg, showTspResults);
+    
+    if numel(markerCenterCoords) ~= 12
+        fprintf('[%d]\n', i);
+        allCorrect = false;
+    else 
+        dataMatrix(i,:) = [i, markerCenterCoords(1,:), markerCenterCoords(2,:), markerCenterCoords(3,:), markerCenterCoords(4,:), markerCenterCoords(5,:), markerCenterCoords(6,:)];
+    end
+        
 end  
+
+%% Save Data Matrix
+if allCorrect
+    datasetFolder = 'Datasets Images\';
+    extMAT = 'dataMatrix.mat';
+    
+    saveFolder = [datasetFolder, currentFolder];
+    saveFolder = join(saveFolder);
+    saveFile = [saveFolder, extMAT];
+    saveFile = join(saveFile);
+    
+    mkdir(saveFolder);
+    
+    % Save data to file
+    save(saveFile, 'dataMatrix');
+end
 
     %% FUNCTIONS
 %% CREATE B&W IMAGE MASK
 function imgMasked = createMask(RGB)
 
-    % Convert RGB image to chosen color space
-    I = rgb2ycbcr(RGB);
-
     % Histogramsettings are found using the Color Thresholder app
     % TODO Update thresholds
+
+    % Convert RGB image to chosen color space
+    I = rgb2hsv(RGB);
+    
     % Define thresholds for channel 1 based on histogram settings
-    channel1Min = 53.000;
-    channel1Max = 209.000;
+    channel1Min = 0.991;
+    channel1Max = 0.020;
 
     % Define thresholds for channel 2 based on histogram settings
-    channel2Min = 70.000;
-    channel2Max = 111.000;
+    channel2Min = 0.683;
+    channel2Max = 1.000;
 
     % Define thresholds for channel 3 based on histogram settings
-    channel3Min = 145.000;
-    channel3Max = 244.000;
+    channel3Min = 0.192;
+    channel3Max = 0.448;
 
     % Create mask based on chosen histogram thresholds
-    sliderBW = (I(:,:,1) >= channel1Min ) & (I(:,:,1) <= channel1Max) & ...
+    sliderBW = ( (I(:,:,1) >= channel1Min) | (I(:,:,1) <= channel1Max) ) & ...
         (I(:,:,2) >= channel2Min ) & (I(:,:,2) <= channel2Max) & ...
         (I(:,:,3) >= channel3Min ) & (I(:,:,3) <= channel3Max);
     imgMasked = sliderBW;
@@ -62,7 +107,7 @@ end
 %% Marker identification
 function markerCenterCoords = identifyMarkers(imgMasked, showImg, showTspResults)
     % Find markers in the masked image, store their center-coordinates and radii
-    [markerCenterCoords, markerRadii] = imfindcircles(imgMasked,[8, 20]);
+    [markerCenterCoords, markerRadii] = imfindcircles(imgMasked,[6, 20]);
 
     % Determine the number of markers, lines, and curves
     lineCount = length(markerCenterCoords) - 1;
@@ -76,9 +121,6 @@ function markerCenterCoords = identifyMarkers(imgMasked, showImg, showTspResults
     for n = 1:lineCount
         markerCenterCoords(n+1,:) = markerCenterCoordsUnsorted(result(n),:);
     end
-
-    % Save data to file
-    save('Dataset/markerCenterCoords', 'markerCenterCoords');
 
     %  Show the found markers in the image
     if showImg
