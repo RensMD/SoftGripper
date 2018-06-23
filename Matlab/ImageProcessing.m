@@ -2,37 +2,45 @@ clear;
 warning off;
 
 %% Settings
+% Markers
+nMarkers = 6;
+
+% Processing 
 showImg = false;
 showTspResults = false;
 
-% Image files
-imageFolder = ('Images\');
-currentFolder = ('2018  06  21  12  06\');
-folder = [imageFolder, currentFolder];
-folder = join(folder);
+% Path
+imageFolder = ('Images/');
+datasetFolder = 'Datasets/';
+currentFolder = ('18-06-21_12-06_S5-N600'); % Set folder
+
+slash = '/';
+nameOUT = '_OUT';
+extMAT = '.mat';
 
 % Camera Calibration data
 load('Camera Calibration\Logitec C922\cameraParams.mat');
 
 %% Get images
 % Get image file names
-filePattern = sprintf('%s/*.png', folder);
+pathImageFolder = join([imageFolder, currentFolder, slash]);
+filePattern = sprintf('%s/*.png', pathImageFolder);
 baseFileNames = dir(filePattern);
 
 % Count number of images and create data matrix
 numberOfImageFiles = length(baseFileNames);
-dataMatrix = zeros(3, 13);
+dataMatrix = zeros(3, (1+(nMarkers*2)));
 
 % Create a check if all images meet conditions
 allCorrect = true;
 
 %% Loop
 for i=1:numberOfImageFiles
-    imgPath = fullfile(folder, baseFileNames(i).name);
+    imgPath = fullfile(pathImageFolder, baseFileNames(i).name);
     
     % Load image and crop
     img = imread(imgPath);
-    img = imcrop(img,[120 65 420 230]);
+    img = imcrop(img,[120 65 420 230]); % Tune for image
       
     % Load webcam calibration parameters and use them to undistort the image
     img = undistortImage(img,cameraParams);
@@ -43,28 +51,21 @@ for i=1:numberOfImageFiles
     % Retrieve marker coordinates
     markerCenterCoords = identifyMarkers(imgMasked, showImg, showTspResults);
     
-    if numel(markerCenterCoords) ~= 12
+    if numel(markerCenterCoords) ~= nMarkers*2
         fprintf('[%d]\n', i);
         allCorrect = false;
     else 
-        dataMatrix(i,:) = [i, markerCenterCoords(1,:), markerCenterCoords(2,:), markerCenterCoords(3,:), markerCenterCoords(4,:), markerCenterCoords(5,:), markerCenterCoords(6,:)];
+        dataMatrix(i,:) = [i, reshape(markerCenterCoords.',1,[])];
     end
         
 end  
 
 %% Save Data Matrix
-if allCorrect
-    datasetFolder = 'Datasets Images\';
-    extMAT = 'dataMatrix.mat';
-    
-    saveFolder = [datasetFolder, currentFolder];
-    saveFolder = join(saveFolder);
-    saveFile = [saveFolder, extMAT];
-    saveFile = join(saveFile);
+if allCorrect  
+    saveFolder = join([datasetFolder, currentFolder, slash]);
+    saveFile = join([saveFolder, currentFolder, nameOUT, extMAT]);
     
     mkdir(saveFolder);
-    
-    % Save data to file
     save(saveFile, 'dataMatrix');
 end
 

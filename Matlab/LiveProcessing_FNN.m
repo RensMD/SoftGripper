@@ -1,3 +1,6 @@
+%% Settings
+nSensors = 4;
+
 %% Setup
 % setup GUI
 f = figure;
@@ -7,10 +10,12 @@ H = uicontrol('Style','PushButton', 'String', 'Break', 'Callback', 'delete(gcbf)
 instrfind('Port','COM8') % Check if arduinoSensor is in use
 arduinoSensor = serial('COM8','BaudRate',9600);
 arduinoSensor.Terminator = 'CR/LF';
+command = 'a';
 fopen(arduinoSensor);
 pause(5);
 
-command = 'a';
+% Setup Data Matrix
+sensorData = zeros(nSensors, 4);
 
 %% Loop
 % Keep looping until GUI is closed (break button)
@@ -18,24 +23,12 @@ while (ishandle(H))
     disp(clock);
 
     fprintf(arduinoSensor,command);
-    
     pause(0.8); % Try decreasing pause if reading too slow
+    for n=1:nSensors
+        sensorData(n,:) = str2double(strsplit(fgetl(arduinoSensor),','));
+    end
     
-     sensorData0 = str2double(strsplit(fgetl(arduinoSensor),','));
-     sensorData1 = str2double(strsplit(fgetl(arduinoSensor),','));
-     sensorData2 = str2double(strsplit(fgetl(arduinoSensor),','));
-     sensorData3 = str2double(strsplit(fgetl(arduinoSensor),','));
-     sensorData4 = str2double(strsplit(fgetl(arduinoSensor),','));
-
- %   sensorData0 = [1464,3149,4368,9257];
- %   sensorData1 = [1530,2820,3218,7706];
- %   sensorData2 = [1524,2590,2983,7142];
- %   sensorData3 = [1074,2009,2422,5667];
-% 
-    dataMatrix = [sensorData0, sensorData1, sensorData2, sensorData3];
-% 
-    coords = myNN(dataMatrix);
-    % expected output of coords [ x1,y1,x2,y2,...]
+    coords = myNN(reshape(sensorData.',1,[]));
 
     hold off;
     for i=1:6
@@ -43,15 +36,14 @@ while (ishandle(H))
         hold on;
     end
     
-    axis([40 350 0 400]); % set axis appropriately 
-    axis equal
-    set(gca,'Ydir','reverse')
-
+    % Set axis appropriately
+    axis([40 350 0 400]); axis equal; set(gca,'Ydir','reverse');  
+    
 %     pause(0.2); % Add pause if reading too fast
 
 end
 
-% fclose(arduinoSensor);
+fclose(arduinoSensor);
 close all 
 
 %% NN

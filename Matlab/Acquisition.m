@@ -9,26 +9,38 @@ clear;
 % TODO: Allow enbaling and disabling of seccond measurement within same settings
 
 %% Settings
-nSamples = 600; % Multiple of 2
+% Data acuisition
+nSensors = 4;
+nMarkers = 6;
+nSamples = 600; % Must be multiple of 2
 
+% Obstacle
 angleStarting = 0;
 angleMax = 120;
 
+% Pressure
 presMin = 55;
 presMax = 90;
 
 %% Setup
-
 % Setup Folders
-format shortg
-c = clock;
-number = num2str(c(1:5),'%02d');
-folderDate = join(number);
+nameDate = datestr(now, 'yy-mm-dd_HH-MM');
+nameInfo = ['_S' num2str(nSensors) '-M' num2str(nMarkers) '-N' num2str(nSamples)];
+nameIN = '_IN';
+
 topFolderImages = 'Images/';
 topFolderData = 'Datasets/';
 slash = '/';
+
 extPNG = '.png';
 extMAT = '.mat';
+
+pathName = join([nameDate, nameInfo]);
+pathImageFolder = join([topFolderImages, pathName]);
+pathDataFolder = join([topFolderData, pathName]);
+
+mkdir (pathImageFolder);
+mkdir (pathDataFolder);
 
 % % Setup arduino communication
 instrfind('Port','COM5') % Check if arduinoActuator is in use
@@ -47,12 +59,9 @@ command = 'a';
 webcamlist;
 cam = webcam('C922 Pro Stream Webcam');
 
-pathFolderImages = [topFolderImages, folderDate];
-pathFolderImages = join(pathFolderImages);
-mkdir (pathFolderImages);
-
 % Setup Data Matrix
-dataMatrix = zeros(nSamples, 23);
+sensorData = zeros(nSensors, 4);
+dataMatrix = zeros(nSamples, (3+(nSensors*4)));
 
 %% Loop
 for curSample=1:2:(nSamples)
@@ -83,20 +92,17 @@ for curSample=1:2:(nSamples)
     img = snapshot(cam);
     fprintf(arduinoSensor,command);
     pause(1);
-    sensorData0 = str2double(strsplit(fgetl(arduinoSensor),','));
-    sensorData1 = str2double(strsplit(fgetl(arduinoSensor),','));
-    sensorData2 = str2double(strsplit(fgetl(arduinoSensor),','));
-    sensorData3 = str2double(strsplit(fgetl(arduinoSensor),','));
-    sensorData4 = str2double(strsplit(fgetl(arduinoSensor),','));
+    for n=1:nSensors
+        sensorData(n,:) = str2double(strsplit(fgetl(arduinoSensor),','));
+    end
     
     % Save Image to path
-    number = num2str(curSample,'%04d');
-    pathImage = [pathFolderImages, slash, number, extPNG];
-    pathImage = join(pathImage);
+    sampleString = num2str(curSample,'%04d');
+    pathImage = join([pathImageFolder, slash, sampleString, extPNG]);
     imwrite(img, pathImage);
     
     % Save Data matrix
-    dataMatrix(curSample,1:23) = [curSample, randAngle, randPress, sensorData0, sensorData1, sensorData2, sensorData3, sensorData4];
+    dataMatrix(curSample,:) = [curSample, randAngle, randPress, reshape(sensorData.',1,[])];
     
 
     % Print current sample 
@@ -111,20 +117,17 @@ for curSample=1:2:(nSamples)
     img = snapshot(cam);
     fprintf(arduinoSensor,command);
     pause(1);
-    sensorData0 = str2double(strsplit(fgetl(arduinoSensor),','));
-    sensorData1 = str2double(strsplit(fgetl(arduinoSensor),','));
-    sensorData2 = str2double(strsplit(fgetl(arduinoSensor),','));
-    sensorData3 = str2double(strsplit(fgetl(arduinoSensor),','));
-    sensorData4 = str2double(strsplit(fgetl(arduinoSensor),','));
+    for n=1:nSensors
+        sensorData(n,:) = str2double(strsplit(fgetl(arduinoSensor),','));
+    end
     
     % Save Image to path
-    number = num2str(curSample+1,'%04d');
-    pathImage = [pathFolderImages, slash, number, extPNG];
-    pathImage = join(pathImage);
+    sampleString = num2str(curSample+1,'%04d');
+    pathImage = join([pathImageFolder, slash, sampleString, extPNG]);
     imwrite(img, pathImage);
     
     % Save Data matrix
-    dataMatrix(curSample+1,1:23) = [curSample+1, randAngle, randPress, sensorData0, sensorData1, sensorData2, sensorData3, sensorData4];
+    dataMatrix(curSample+1,:) = [curSample+1, randAngle, randPress, reshape(sensorData.',1,[])];
   
    
     %Reset actuator positions
@@ -134,8 +137,8 @@ for curSample=1:2:(nSamples)
 end
 
 % Save data matrix
-matriceName = join([topFolderData, folderDate, extMAT]);
-save(matriceName, 'dataMatrix');
+matricePathName = join([pathDataFolder, slash, pathName, nameIN, extMAT]);
+save(matricePathName, 'dataMatrix');
 
 fclose(arduinoActuator);
 fclose(arduinoSensor);

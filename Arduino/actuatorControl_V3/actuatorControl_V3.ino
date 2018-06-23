@@ -120,12 +120,13 @@ void loop() {
   
   if(!Serial.available()){
     if(!leaking){
+      // get pressure, compute PID, and control stepper and pumps
       pressureMeasured = analogRead(pinPresSensor);
       myPID.Compute();
       moveStepper(outputPID);
-
       controlPumpLimits();
     }
+    // Wait till leak is sorted out
     else delay(1000);
     
     #ifdef DEBUG_MODE
@@ -203,7 +204,7 @@ void controlPumpLimits(){
 /* INITIALIZE SETUP AFTER INCOMING COMMAND */
 void initializePump(){
 
-  // Check if limit pumps were on
+  // Check if limit pumps were on, turn off if true
   if(presOn) presOn = false;
   if(vacOn){
     digitalWrite(pinVacSolenoid, LOW);
